@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../domain/entities/user.dart';
-import '../bloc/users_bloc.dart';
+import 'package:provider/provider.dart';
+import 'user.dart';
+import 'user_provider.dart';
 
 class UsersPage extends StatefulWidget {
   const UsersPage({super.key});
@@ -27,7 +27,9 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
       curve: Curves.easeOut,
     );
 
-    context.read<UsersBloc>().add(const FetchUsers());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<UserProvider>().loadUsers();
+    });
     _fadeController.forward();
   }
 
@@ -115,12 +117,12 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
             ],
           ),
           const SizedBox(height: 4),
-          BlocBuilder<UsersBloc, UsersState>(
-            builder: (context, state) {
-              if (state is UsersLoaded) {
+          Consumer<UserProvider>(
+            builder: (context, provider, _) {
+              if (provider.state == UserState.loaded) {
                 return Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: _buildCountChip(state, colorScheme),
+                  child: _buildCountChip(provider, colorScheme),
                 );
               }
               return const SizedBox.shrink();
@@ -131,10 +133,10 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildCountChip(UsersLoaded state, ColorScheme colorScheme) {
-    final showing = state.filteredUsers.length;
-    final total = state.allUsers.length;
-    final isFiltered = state.query.isNotEmpty;
+  Widget _buildCountChip(UserProvider provider, ColorScheme colorScheme) {
+    final showing = provider.users.length;
+    final total = provider.allUsers.length;
+    final isFiltered = provider.query.isNotEmpty;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -147,9 +149,7 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
-              isFiltered
-                  ? '$showing of $total users'
-                  : '$total users',
+              isFiltered ? '$showing of $total users' : '$total users',
               style: TextStyle(
                 color: colorScheme.onPrimaryContainer,
                 fontWeight: FontWeight.w600,
@@ -162,7 +162,7 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
             GestureDetector(
               onTap: () {
                 _searchController.clear();
-                context.read<UsersBloc>().add(const FilterUsers(''));
+                context.read<UserProvider>().searchUsers('');
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -196,9 +196,9 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
   Widget _buildSearchBar(ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
-      child: BlocBuilder<UsersBloc, UsersState>(
-        builder: (context, state) {
-          final isEnabled = state is UsersLoaded;
+      child: Consumer<UserProvider>(
+        builder: (context, provider, _) {
+          final isEnabled = provider.state == UserState.loaded;
           return AnimatedContainer(
             duration: const Duration(milliseconds: 300),
             decoration: BoxDecoration(
@@ -220,7 +220,7 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
               controller: _searchController,
               enabled: isEnabled,
               onChanged: (value) {
-                context.read<UsersBloc>().add(FilterUsers(value));
+                provider.searchUsers(value);
               },
               style: TextStyle(
                 color: colorScheme.onSurface,
@@ -248,7 +248,7 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
                             color: colorScheme.onSurfaceVariant, size: 20),
                         onPressed: () {
                           _searchController.clear();
-                          context.read<UsersBloc>().add(const FilterUsers(''));
+                          provider.searchUsers('');
                         },
                       )
                     : null,
@@ -264,17 +264,17 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
 
   Widget _buildContent(ColorScheme colorScheme) {
     return Expanded(
-      child: BlocBuilder<UsersBloc, UsersState>(
-        builder: (context, state) {
-          if (state is UsersInitial || state is UsersLoading) {
+      child: Consumer<UserProvider>(
+        builder: (context, provider, _) {
+          if (provider.state == UserState.loading) {
             return _buildLoadingState(colorScheme);
-          } else if (state is UsersError) {
-            return _buildErrorState(state, colorScheme);
-          } else if (state is UsersLoaded) {
-            if (state.filteredUsers.isEmpty) {
-              return _buildEmptyState(state.query, colorScheme);
+          } else if (provider.state == UserState.error) {
+            return _buildErrorState(provider.errorMessage, colorScheme);
+          } else if (provider.state == UserState.loaded) {
+            if (provider.users.isEmpty) {
+              return _buildEmptyState(provider.query, colorScheme);
             }
-            return _buildUsersList(state.filteredUsers, colorScheme);
+            return _buildUsersList(provider.users, colorScheme);
           }
           return const SizedBox.shrink();
         },
@@ -351,7 +351,7 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildErrorState(UsersError state, ColorScheme colorScheme) {
+  Widget _buildErrorState(String message, ColorScheme colorScheme) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -381,7 +381,7 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
             ),
             const SizedBox(height: 8),
             Text(
-              state.message,
+              message,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: colorScheme.onSurfaceVariant,
                   ),
@@ -390,7 +390,7 @@ class _UsersPageState extends State<UsersPage> with TickerProviderStateMixin {
             const SizedBox(height: 32),
             FilledButton.icon(
               onPressed: () {
-                context.read<UsersBloc>().add(const FetchUsers());
+                context.read<UserProvider>().loadUsers();
               },
               icon: const Icon(Icons.refresh_rounded),
               label: const Text('Try Again'),
@@ -479,8 +479,7 @@ class _UserCard extends StatefulWidget {
   State<_UserCard> createState() => _UserCardState();
 }
 
-class _UserCardState extends State<_UserCard>
-    with SingleTickerProviderStateMixin {
+class _UserCardState extends State<_UserCard> with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<Offset> _slideAnimation;
   late final Animation<double> _fadeAnimation;
@@ -499,7 +498,6 @@ class _UserCardState extends State<_UserCard>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
     _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
 
-    // Staggered entrance animation
     Future.delayed(Duration(milliseconds: widget.index * 50), () {
       if (mounted) _controller.forward();
     });
@@ -520,18 +518,17 @@ class _UserCardState extends State<_UserCard>
   }
 
   Color get _avatarColor {
-    // Deterministic color from name hash
     final colors = [
-      const Color(0xFF6366F1), // Indigo
-      const Color(0xFF8B5CF6), // Violet
-      const Color(0xFFEC4899), // Pink
-      const Color(0xFF06B6D4), // Cyan
-      const Color(0xFF10B981), // Emerald
-      const Color(0xFFF59E0B), // Amber
-      const Color(0xFFEF4444), // Red
-      const Color(0xFF3B82F6), // Blue
-      const Color(0xFF14B8A6), // Teal
-      const Color(0xFFF97316), // Orange
+      const Color(0xFF6366F1),
+      const Color(0xFF8B5CF6),
+      const Color(0xFFEC4899),
+      const Color(0xFF06B6D4),
+      const Color(0xFF10B981),
+      const Color(0xFFF59E0B),
+      const Color(0xFFEF4444),
+      const Color(0xFF3B82F6),
+      const Color(0xFF14B8A6),
+      const Color(0xFFF97316),
     ];
     return colors[widget.user.id % colors.length];
   }
@@ -549,8 +546,7 @@ class _UserCardState extends State<_UserCard>
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            transform: Matrix4.identity()
-              ..scale(_isPressed ? 0.97 : 1.0),
+            transform: Matrix4.identity()..scale(_isPressed ? 0.97 : 1.0),
             decoration: BoxDecoration(
               color: widget.colorScheme.surface,
               borderRadius: BorderRadius.circular(20),
